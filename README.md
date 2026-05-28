@@ -91,81 +91,102 @@ npm run serve:ssr:angular-app
 
 À définir selon le contexte du projet.
 
+---
 
 ## Explication clean architecture
 
-J'ai écrit les docs (docs/ARCHITECTURE.md en particulier), mais je ne te l'ai pas expliqué à toi directement. Voici l'explication, en partant du POURQUOI et en m'appuyant sur le code concret du repo.
+J'ai écrit les docs (`docs/ARCHITECTURE.md` en particulier), mais je ne te l'ai pas expliqué à toi directement. Voici l'explication, en partant du POURQUOI et en m'appuyant sur le code concret du repo.
 
-Le problème que Clean Architecture résout
+### Le problème que Clean Architecture résout
+
 Dans un projet d'entreprise qui vit 5+ ans, les choses qui changent le plus souvent sont :
 
-Le framework UI (Angular 15 → 16 → 17 → 20 → 21…)
-L'API backend (REST → GraphQL, URLs, shapes…)
-Les libs de state (NgRx classique → Signals → Signal Store…)
-L'ORM, la base de données, le cache, l'auth provider…
+- Le framework UI (Angular 15 → 16 → 17 → 20 → 21…)
+- L'API backend (REST → GraphQL, URLs, shapes…)
+- Les libs de state (NgRx classique → Signals → Signal Store…)
+- L'ORM, la base de données, le cache, l'auth provider…
+
 Les choses qui changent le moins souvent sont les règles métier : un email reste un email, une commande a toujours un total, un utilisateur ne peut pas avoir un nom vide.
 
-Clean Architecture = mettre au centre ce qui change le moins, à la périphérie ce qui change le plus, et faire pointer les dépendances de l'extérieur vers l'intérieur — jamais l'inverse.
+**Clean Architecture** = mettre au centre ce qui change le moins, à la périphérie ce qui change le plus, et faire pointer les dépendances de l'extérieur vers l'intérieur — jamais l'inverse.
 
 C'est ça la "règle de dépendance". Tout le reste en découle.
 
-Les 4 couches dans ton template
+### Les 4 couches dans ton template
 
+```
 presentation  ──►  application  ──►  domain  ◄──  infrastructure
    (Angular)        (use-cases)      (métier)       (HTTP, storage)
-domain/ — le cœur, immuable
+```
+
+#### `domain/` — le cœur, immuable
+
 C'est du TypeScript pur. Zéro Angular, zéro RxJS, zéro HTTP. Si demain tu changeais Angular pour React, ce dossier ne bougerait pas d'une ligne.
 
 Concrètement dans le repo :
 
-Email — un value object. Son constructeur est privé, on passe par Email.create() qui garantit la validité au moment de l'instanciation. Si tu as un Email dans les mains, tu sais qu'il est valide. Pas besoin de revalider 50 fois.
-User — une entité, readonly partout. Pour la modifier, on construit une nouvelle instance (rename() retourne un nouveau User). C'est immuable → pas de bugs de mutation partagée.
-UserRepository — une interface (un "port"). Le domaine déclare ce qu'il a besoin de pouvoir faire, sans dire comment. Le InjectionToken à côté permettra de brancher une implémentation depuis l'extérieur.
-La règle clé : le domaine n'importe rien. Si tu te retrouves à import { HttpClient } dans domain/, l'architecture est cassée.
+- **`Email`** — un value object. Son constructeur est privé, on passe par `Email.create()` qui garantit la validité au moment de l'instanciation. Si tu as un `Email` dans les mains, tu sais qu'il est valide. Pas besoin de revalider 50 fois.
+- **`User`** — une entité, `readonly` partout. Pour la modifier, on construit une nouvelle instance (`rename()` retourne un nouveau `User`). C'est immuable → pas de bugs de mutation partagée.
+- **`UserRepository`** — une interface (un "port"). Le domaine déclare ce qu'il a besoin de pouvoir faire, sans dire comment. Le `InjectionToken` à côté permettra de brancher une implémentation depuis l'extérieur.
 
-application/ — les cas d'usage
-C'est l'orchestration. Chaque action métier est une classe avec une seule méthode execute().
+**La règle clé** : le domaine n'importe rien. Si tu te retrouves à `import { HttpClient }` dans `domain/`, l'architecture est cassée.
 
-ListUsersUseCase — fait un truc, et un seul : lister les users via le repository.
-GetUserByIdUseCase — récupère, et lève UserNotFoundError si absent.
+#### `application/` — les cas d'usage
+
+C'est l'orchestration. Chaque action métier est une classe avec une seule méthode `execute()`.
+
+- **`ListUsersUseCase`** — fait un truc, et un seul : lister les users via le repository.
+- **`GetUserByIdUseCase`** — récupère, et lève `UserNotFoundError` si absent.
+
 Pourquoi des classes plutôt que des fonctions libres ? Pour l'injection de dépendances Angular et la testabilité : on peut injecter un fake repository dans les tests sans toucher au use-case.
 
-Le UsersStore vit aussi ici : c'est l'état applicatif (Signal Store), mais il n'appelle jamais HttpClient directement — il passe par les use-cases. C'est non-négociable.
+Le `UsersStore` vit aussi ici : c'est l'état applicatif (Signal Store), mais il n'appelle jamais `HttpClient` directement — il passe par les use-cases. C'est non-négociable.
 
-infrastructure/ — les adapters concrets
+#### `infrastructure/` — les adapters concrets
+
 C'est là qu'on implémente les ports déclarés dans le domaine.
 
-HttpUserRepository — implémente UserRepository avec HttpClient. Il encapsule les erreurs HTTP dans InfrastructureError pour que le reste du code ne voie que du domaine pur.
-UserDto — la shape exacte de l'API (created_at en snake_case, etc.). Ce DTO ne sort jamais d'infrastructure/.
-UserMapper — fonction pure DTO → entité. C'est la frontière.
-InMemoryUserRepository — implémente le même port en RAM. Te permet de tester sans réseau, et même de bootstraper l'app en dev sans backend.
-users.providers.ts — l'unique endroit où on dit "ce port = cette implémentation".
-Le truc important : le domaine définit l'interface, l'infrastructure dépend du domaine. La flèche pointe vers l'intérieur. C'est l'inversion de dépendance (le D de SOLID).
+- **`HttpUserRepository`** — implémente `UserRepository` avec `HttpClient`. Il encapsule les erreurs HTTP dans `InfrastructureError` pour que le reste du code ne voie que du domaine pur.
+- **`UserDto`** — la shape exacte de l'API (`created_at` en snake_case, etc.). Ce DTO ne sort jamais d'`infrastructure/`.
+- **`UserMapper`** — fonction pure `DTO → entité`. C'est la frontière.
+- **`InMemoryUserRepository`** — implémente le même port en RAM. Te permet de tester sans réseau, et même de bootstraper l'app en dev sans backend.
+- **`users.providers.ts`** — l'unique endroit où on dit "ce port = cette implémentation".
 
-presentation/ — l'UI Angular
-Les composants, pages, routes. Ne consomment QUE application/ (use-cases + store), shared/ et core/.
+Le truc important : le domaine définit l'interface, l'infrastructure dépend du domaine. La flèche pointe vers l'intérieur. C'est l'inversion de dépendance (le **D** de SOLID).
 
-UsersListPage — injecte le store, appelle store.load(). Ne sait pas que ça va taper HTTP. Demain tu remplaces le HTTP repo par un GraphQL repo : ce composant ne bouge pas.
-users.routes.ts — c'est l'unique exception : la route est autorisée à importer usersProviders de infrastructure/ pour câbler la DI au niveau de la feature lazy. C'est explicitement exempté dans eslint.config.mjs.
-Pourquoi ça tient sur le long terme
-Tu peux changer une couche sans toucher les autres
-Remplacer HttpClient par fetch natif ? Tu touches juste infrastructure/http/.
-Migrer de @ngrx/signals vers un autre store ? Tu touches application/store/. Les composants voient les mêmes signaux exposés.
-Passer de Angular 21 à Angular 22 ? Le domain ne bouge pas.
-Tu peux tester ce qui compte sans monter un navigateur
-100% de couverture sur le domain → tests purs, 50 ms.
-Use-cases testés avec InMemoryUserRepository → pas de mock manuel, pas de réseau.
-Composants testés au DOM minimal.
+#### `presentation/` — l'UI Angular
+
+Les composants, pages, routes. Ne consomment QUE `application/` (use-cases + store), `shared/` et `core/`.
+
+- **`UsersListPage`** — injecte le store, appelle `store.load()`. Ne sait pas que ça va taper HTTP. Demain tu remplaces le HTTP repo par un GraphQL repo : ce composant ne bouge pas.
+- **`users.routes.ts`** — c'est l'unique exception : la route est autorisée à importer `usersProviders` de `infrastructure/` pour câbler la DI au niveau de la feature lazy. C'est explicitement exempté dans `eslint.config.mjs`.
+
+### Pourquoi ça tient sur le long terme
+
+**Tu peux changer une couche sans toucher les autres**
+
+- Remplacer `HttpClient` par `fetch` natif ? Tu touches juste `infrastructure/http/`.
+- Migrer de `@ngrx/signals` vers un autre store ? Tu touches `application/store/`. Les composants voient les mêmes signaux exposés.
+- Passer de Angular 21 à Angular 22 ? Le `domain` ne bouge pas.
+
+**Tu peux tester ce qui compte sans monter un navigateur**
+
+- 100% de couverture sur le `domain` → tests purs, 50 ms.
+- Use-cases testés avec `InMemoryUserRepository` → pas de mock manuel, pas de réseau.
+- Composants testés au DOM minimal.
+
 C'est exactement ce que tu vois dans les 19 tests verts du repo.
 
-L'ESLint t'empêche de tricher
-eslint.config.mjs avec eslint-plugin-boundaries bloque les imports interdits. Si quelqu'un (humain ou IA) essaie d'import { HttpClient } dans le domain/, le lint échoue, et le hook pre-commit empêche le commit. L'architecture n'est plus une convention orale, c'est une règle exécutable.
+**L'ESLint t'empêche de tricher**
 
-Les conventions de nommage rendent la lecture instantanée
-Quand tu vois un fichier .use-case.ts tu sais dans quelle couche tu es, quel pattern il suit, et où sont ses dépendances. Pareil pour .vo.ts, .repository.ts, .mapper.ts… C'est pour ça que docs/NAMING.md existe.
+`eslint.config.mjs` avec `eslint-plugin-boundaries` bloque les imports interdits. Si quelqu'un (humain ou IA) essaie d'`import { HttpClient }` dans le `domain/`, le lint échoue, et le hook pre-commit empêche le commit. L'architecture n'est plus une convention orale, c'est une règle exécutable.
 
-Le piège classique à éviter
-L'erreur la plus fréquente sur ce style d'archi : sur-ingénierie. Mettre une couche Application avec des use-cases pour chaque CRUD trivial peut sembler lourd au début.
+**Les conventions de nommage rendent la lecture instantanée**
 
-Mon conseil : garde la structure même pour le petit CRUD. Le coût d'écrire un ListXUseCase à 3 lignes est négligeable, et le jour où la "simple liste" devient "liste avec filtres + pagination + tri + cache + retry", tu as déjà l'emplacement où ajouter cette complexité sans tout réécrire.#   t e m p l a t e - a n g u l a r - c l e a n - a r c h i t e c t u r e - 2 0 2 6  
- 
+Quand tu vois un fichier `.use-case.ts` tu sais dans quelle couche tu es, quel pattern il suit, et où sont ses dépendances. Pareil pour `.vo.ts`, `.repository.ts`, `.mapper.ts`… C'est pour ça que `docs/NAMING.md` existe.
+
+### Le piège classique à éviter
+
+L'erreur la plus fréquente sur ce style d'archi : **sur-ingénierie**. Mettre une couche Application avec des use-cases pour chaque CRUD trivial peut sembler lourd au début.
+
+Mon conseil : garde la structure même pour le petit CRUD. Le coût d'écrire un `ListXUseCase` à 3 lignes est négligeable, et le jour où la "simple liste" devient "liste avec filtres + pagination + tri + cache + retry", tu as déjà l'emplacement où ajouter cette complexité sans tout réécrire.
