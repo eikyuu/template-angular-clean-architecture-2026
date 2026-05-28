@@ -95,7 +95,7 @@ npm run serve:ssr:angular-app
 
 ## Explication clean architecture
 
-J'ai écrit les docs (`docs/ARCHITECTURE.md` en particulier), mais je ne te l'ai pas expliqué à toi directement. Voici l'explication, en partant du POURQUOI et en m'appuyant sur le code concret du repo.
+Voici l'explication, en partant du POURQUOI et en m'appuyant sur le code concret du repo.
 
 ### Le problème que Clean Architecture résout
 
